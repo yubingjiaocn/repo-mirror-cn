@@ -35,3 +35,8 @@ variable "subnet_id" {
   description = "Subnet ID where the EC2 instance will be created"
   type        = string
 }
+
+variable "alb_subnet_ids" {
+  description = "List of subnet IDs for the Application Load Balancer (minimum 2 subnets in different AZs required)"
+  type        = list(string)
+}

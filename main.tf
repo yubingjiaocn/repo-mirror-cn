@@ -55,8 +55,6 @@ resource "aws_ec2_managed_prefix_list" "northwest" {
   entry {
     cidr        = "161.189.0.0/16"
   }
-
-  # Add more entries as needed
 }
 
 # Managed prefix list for cn-north-1 region
@@ -116,7 +114,6 @@ resource "aws_ec2_managed_prefix_list" "north" {
   entry {
     cidr        = "150.222.88.0/23"
   }
-  # Add more entries as needed
 }
 
 # Get latest AL2023 AMI
@@ -135,22 +132,16 @@ data "aws_ami" "al2023" {
   }
 }
 
-# Security Group Module
-module "security_group" {
+# ALB Security Group
+module "alb_security_group" {
   source  = "terraform-aws-modules/security-group/aws"
   version = "~> 5.0"
 
-  name        = "instance_sg_${var.environment}"
-  description = "Security group for EC2 instance"
+  name        = "nexus_server_alb_sg_${var.environment}"
+  description = "Security group for Application Load Balancer"
   vpc_id      = var.vpc_id
 
   ingress_with_cidr_blocks = [
-    {
-      from_port   = 22
-      to_port     = 22
-      protocol    = "tcp"
-      cidr_blocks = "0.0.0.0/0"
-    },
     {
       from_port   = 8081
       to_port     = 8081
@@ -162,8 +153,8 @@ module "security_group" {
 
   ingress_with_prefix_list_ids = [
     {
-      from_port         = 8081
-      to_port           = 8081
+      from_port         = 80
+      to_port           = 80
       protocol          = "tcp"
       prefix_list_ids   = "${aws_ec2_managed_prefix_list.northwest.id},${aws_ec2_managed_prefix_list.north.id}"
       description       = "Allow access from AWS China regions"
@@ -178,6 +169,135 @@ module "security_group" {
       cidr_blocks = "0.0.0.0/0"
     }
   ]
+}
+
+# Instance Security Group
+module "security_group" {
+  source  = "terraform-aws-modules/security-group/aws"
+  version = "~> 5.0"
+
+  name        = "nexus_server_instance_sg_${var.environment}"
+  description = "Security group for EC2 instance"
+  vpc_id      = var.vpc_id
+
+  ingress_with_cidr_blocks = [
+    {
+      from_port   = 22
+      to_port     = 22
+      protocol    = "tcp"
+      cidr_blocks = "0.0.0.0/0"
+      description = "Allow SSH from anywhere"
+    }
+  ]
+
+  computed_ingress_with_source_security_group_id = [
+    {
+      from_port                = 8081
+      to_port                  = 8081
+      protocol                 = "tcp"
+      source_security_group_id = module.alb_security_group.security_group_id
+      description             = "Allow traffic from ALB"
+    }
+  ]
+
+  egress_with_cidr_blocks = [
+    {
+      from_port   = 0
+      to_port     = 0
+      protocol    = "-1"
+      cidr_blocks = "0.0.0.0/0"
+    }
+  ]
+}
+
+# Application Load Balancer
+module "alb" {
+  source  = "terraform-aws-modules/alb/aws"
+  version = "~> 8.0"
+
+  name = "nexus-alb-${var.environment}"
+
+  load_balancer_type = "application"
+  vpc_id             = var.vpc_id
+  subnets            = var.alb_subnet_ids
+  security_groups    = [module.alb_security_group.security_group_id]
+
+  target_groups = [
+    {
+      name             = "nexus-tg-${var.environment}"
+      backend_protocol = "HTTP"
+      backend_port     = 8081
+      target_type      = "instance"
+      health_check = {
+        enabled             = true
+        interval           = 30
+        path               = "/"
+        port               = "traffic-port"
+        healthy_threshold   = 3
+        unhealthy_threshold = 3
+        timeout            = 6
+        protocol           = "HTTP"
+        matcher            = "200-399"
+      }
+    }
+  ]
+
+  http_tcp_listeners = [
+    {
+      port               = 80
+      protocol           = "HTTP"
+      target_group_index = 0
+    }
+  ]
+
+  tags = {
+    Environment = var.environment
+  }
+}
+
+# WAF Web ACL
+resource "aws_wafv2_web_acl" "main" {
+  name        = "nexus-waf-${var.environment}"
+  description = "WAF Web ACL for Nexus ALB"
+  scope       = "REGIONAL"
+
+  default_action {
+    allow {}
+  }
+
+  rule {
+    name     = "AWSManagedRulesCommonRuleSet"
+    priority = 1
+
+    override_action {
+      none {}
+    }
+
+    statement {
+      managed_rule_group_statement {
+        name        = "AWSManagedRulesCommonRuleSet"
+        vendor_name = "AWS"
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name               = "AWSManagedRulesCommonRuleSetMetric"
+      sampled_requests_enabled  = true
+    }
+  }
+
+  visibility_config {
+    cloudwatch_metrics_enabled = true
+    metric_name               = "nexus-waf-metric"
+    sampled_requests_enabled  = true
+  }
+}
+
+# Associate WAF Web ACL with ALB
+resource "aws_wafv2_web_acl_association" "main" {
+  resource_arn = module.alb.lb_arn
+  web_acl_arn  = aws_wafv2_web_acl.main.arn
 }
 
 # IAM Role Module
@@ -250,7 +370,8 @@ module "asg" {
   max_size            = 1
   desired_capacity    = 1
   vpc_zone_identifier = [var.subnet_id]
-  health_check_type   = "EC2"
+  health_check_type   = "ELB"
+  target_group_arns   = module.alb.target_group_arns
 
   # Launch template
   create_launch_template = true

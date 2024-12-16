@@ -28,7 +28,37 @@ output "iam_role_arn" {
   value       = module.iam_assumable_role.iam_role_arn
 }
 
-output "security_group_id" {
-  description = "ID of the security group"
+output "instance_security_group_id" {
+  description = "ID of the instance security group"
   value       = module.security_group.security_group_id
+}
+
+output "alb_dns_name" {
+  description = "DNS name of the Application Load Balancer"
+  value       = module.alb.lb_dns_name
+}
+
+output "alb_arn" {
+  description = "ARN of the Application Load Balancer"
+  value       = module.alb.lb_arn
+}
+
+output "alb_security_group_id" {
+  description = "ID of the ALB security group"
+  value       = module.alb_security_group.security_group_id
+}
+
+output "waf_web_acl_id" {
+  description = "ID of the WAF Web ACL"
+  value       = aws_wafv2_web_acl.main.id
+}
+
+output "waf_web_acl_arn" {
+  description = "ARN of the WAF Web ACL"
+  value       = aws_wafv2_web_acl.main.arn
+}
+
+output "target_group_arns" {
+  description = "ARNs of the target groups"
+  value       = module.alb.target_group_arns
 }
