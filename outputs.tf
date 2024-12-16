@@ -1,6 +1,6 @@
 output "instance_id" {
   description = "ID of the EC2 instance"
-  value       = module.ec2_instance.id
+  value       = data.aws_instances.asg_instances.ids[0]
 }
 
 output "instance_public_ip" {
@@ -10,7 +10,7 @@ output "instance_public_ip" {
 
 output "instance_private_ip" {
   description = "Private IP address of the EC2 instance"
-  value       = module.ec2_instance.private_ip
+  value       = data.aws_instances.asg_instances.private_ips[0]
 }
 
 output "s3_bucket_name" {

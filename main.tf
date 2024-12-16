@@ -126,17 +126,12 @@ data "aws_ami" "al2023" {
 
   filter {
     name   = "name"
-    values = ["al2023-ami-*-kernel-6.1-*"]
+    values = ["al2023-ami-2023*"]
   }
 
   filter {
     name   = "architecture"
     values = ["arm64"]
-  }
-
-  filter {
-    name   = "virtualization-type"
-    values = ["hvm"]
   }
 }
 
@@ -170,7 +165,7 @@ module "security_group" {
       from_port         = 8081
       to_port           = 8081
       protocol          = "tcp"
-      prefix_list_ids   = [aws_ec2_managed_prefix_list.northwest.id, aws_ec2_managed_prefix_list.north.id]
+      prefix_list_ids   = "${aws_ec2_managed_prefix_list.northwest.id},${aws_ec2_managed_prefix_list.north.id}"
       description       = "Allow access from AWS China regions"
     }
   ]
@@ -191,7 +186,7 @@ module "iam_assumable_role" {
   version = "~> 5.0"
 
   create_role             = true
-  role_name              = "ec2_role_${var.environment}"
+  role_name              = "nexus_repo_ec2_role_${var.environment}"
   role_requires_mfa      = false
   trusted_role_services  = ["ec2.amazonaws.com"]
   custom_role_policy_arns = [
@@ -201,7 +196,7 @@ module "iam_assumable_role" {
 
 # Create instance profile
 resource "aws_iam_instance_profile" "ec2_profile" {
-  name = "ec2_profile_${var.environment}"
+  name = "nexus_repo_ec2_profile_${var.environment}"
   role = module.iam_assumable_role.iam_role_name
 }
 
@@ -244,25 +239,36 @@ resource "aws_iam_role_policy" "s3_access" {
   })
 }
 
-# EC2 Instance Module
-module "ec2_instance" {
-  source  = "terraform-aws-modules/ec2-instance/aws"
-  version = "~> 5.0"
+# Autoscaling Module
+module "asg" {
+  source  = "terraform-aws-modules/autoscaling/aws"
+  version = "~> 7.0"
 
-  name = "app-server-${var.environment}"
+  # Auto scaling group
+  name                = "nexus-server-${var.environment}"
+  min_size            = 1
+  max_size            = 1
+  desired_capacity    = 1
+  vpc_zone_identifier = [var.subnet_id]
+  health_check_type   = "EC2"
 
-  ami                    = data.aws_ami.al2023.id
+  # Launch template
+  create_launch_template = true
+  launch_template_name   = "nexus-server-${var.environment}"
+  image_id              = data.aws_ami.al2023.id
   instance_type         = var.instance_type
   key_name             = var.key_name
-  subnet_id            = var.subnet_id
 
-  vpc_security_group_ids = [module.security_group.security_group_id]
-  iam_instance_profile   = aws_iam_instance_profile.ec2_profile.name
+  security_groups          = [module.security_group.security_group_id]
+  iam_instance_profile_arn = aws_iam_instance_profile.ec2_profile.arn
 
-  root_block_device = [
+  block_device_mappings = [
     {
-      volume_size = 50
-      volume_type = "gp3"
+      device_name = "/dev/xvda"
+      ebs = {
+        volume_size = 50
+        volume_type = "gp3"
+      }
     }
   ]
 
@@ -276,8 +282,19 @@ resource "aws_eip" "instance_eip" {
   domain = "vpc"
 }
 
-# Associate EIP with EC2 instance
+# Get the instance ID from the ASG
+data "aws_instances" "asg_instances" {
+  instance_tags = {
+    "aws:autoscaling:groupName" = module.asg.autoscaling_group_name
+  }
+
+  depends_on = [module.asg]
+}
+
+# EIP Association
 resource "aws_eip_association" "eip_assoc" {
-  instance_id   = module.ec2_instance.id
   allocation_id = aws_eip.instance_eip.id
+  instance_id   = data.aws_instances.asg_instances.ids[0]
+
+  depends_on = [module.asg]
 }
