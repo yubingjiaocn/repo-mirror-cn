@@ -370,7 +370,7 @@ module "asg" {
   max_size            = 1
   desired_capacity    = 1
   vpc_zone_identifier = [var.subnet_id]
-  health_check_type   = "ELB"
+  health_check_type   = "EC2"
   target_group_arns   = module.alb.target_group_arns
 
   # Launch template
