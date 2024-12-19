@@ -13,14 +13,19 @@ output "instance_private_ip" {
   value       = data.aws_instances.asg_instances.private_ips[0]
 }
 
+output "ebs_volume_id" {
+  description = "ID of the EBS volume for Nexus data"
+  value       = aws_ebs_volume.nexus_data.id
+}
+
+output "autoscaling_group_name" {
+  description = "Name of the Auto Scaling Group"
+  value       = module.asg.autoscaling_group_name
+}
+
 output "s3_bucket_name" {
   description = "Name of the S3 bucket"
   value       = module.s3_bucket.s3_bucket_id
-}
-
-output "s3_bucket_arn" {
-  description = "ARN of the S3 bucket"
-  value       = module.s3_bucket.s3_bucket_arn
 }
 
 output "iam_role_arn" {
@@ -38,11 +43,6 @@ output "alb_dns_name" {
   value       = module.alb.lb_dns_name
 }
 
-output "alb_arn" {
-  description = "ARN of the Application Load Balancer"
-  value       = module.alb.lb_arn
-}
-
 output "alb_security_group_id" {
   description = "ID of the ALB security group"
   value       = module.alb_security_group.security_group_id
@@ -51,14 +51,4 @@ output "alb_security_group_id" {
 output "waf_web_acl_id" {
   description = "ID of the WAF Web ACL"
   value       = aws_wafv2_web_acl.main.id
-}
-
-output "waf_web_acl_arn" {
-  description = "ARN of the WAF Web ACL"
-  value       = aws_wafv2_web_acl.main.arn
-}
-
-output "target_group_arns" {
-  description = "ARNs of the target groups"
-  value       = module.alb.target_group_arns
 }

@@ -40,3 +40,14 @@ variable "alb_subnet_ids" {
   description = "List of subnet IDs for the Application Load Balancer (minimum 2 subnets in different AZs required)"
   type        = list(string)
 }
+
+variable "nexus_image" {
+  description = "Image path (Repository:Tag) of Nexus Registry OSS"
+  type        = string
+}
+
+variable "nexus_start_parameter" {
+  description = "Parameters for launching Nexus Registry OSS container"
+  type        = string
+  default     = "-e INSTALL4J_ADD_VM_PARAMS=\"-Xms8192m -Xmx8192m -XX:MaxDirectMemorySize=8192m\""
+}
