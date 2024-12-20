@@ -3,7 +3,6 @@ import asyncio
 import logging
 from typing import List, Dict
 from bs4 import BeautifulSoup
-import re
 from urllib.parse import urljoin
 
 PYPI_URL = "http://<Path to ALB>/repository/python/simple"
@@ -69,7 +68,7 @@ class PyPiPackageFetcher:
                             files.append({
                                 'url': absolute_url,
                                 'requires_python': anchor.get('data-requires-python'),
-                                'filename': href.split('/')[-1]
+                                'filename': clean_url.split('/')[-1]
                             })
 
                     if files:

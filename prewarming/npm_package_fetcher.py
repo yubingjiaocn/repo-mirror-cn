@@ -3,7 +3,7 @@ import asyncio
 import logging
 from typing import List, Dict
 
-REGISTRY_URL = "https://registry.npmjs.org"
+REGISTRY_URL = "http://<Path to ALB>/repository/npm"
 CONCURRENCY = 5
 
 # Configure logging
@@ -34,7 +34,7 @@ class NpmPackageFetcher:
                     ]
 
                     # Convert to package objects
-                    packages = [{"name": name} for name in package_names]
+                    packages = [{"name": name} for name in package_names][:10]
                     logger.info(f"Retrieved {len(packages)} packages")
                     return packages
                 else:
@@ -48,16 +48,35 @@ class NpmPackageFetcher:
     async def download_package(self, session: aiohttp.ClientSession, package: Dict) -> None:
         """Download a single npm package"""
         name = package["name"]
-        tarball_url = f"{REGISTRY_URL}/{name}/-/{name}-latest.tgz"
+        metadata_url = f"{REGISTRY_URL}/{name}"
 
         try:
-            logger.info(f"Downloading {name}")
-            async with session.get(tarball_url) as response:
+            # First fetch package metadata to get latest version and tarball URL
+            logger.info(f"Fetching metadata for {name}")
+            async with session.get(metadata_url) as response:
                 if response.status == 200:
-                    await response.read()  # Just read to warm up the mirror
-                    logger.info(f"Downloaded {name}")
+                    metadata = await response.json()
+                    latest_version = metadata.get('dist-tags', {}).get('latest')
+                    if not latest_version:
+                        logger.error(f"Could not find latest version for {name}")
+                        return
+
+                    version_info = metadata.get('versions', {}).get(latest_version, {})
+                    tarball_url = version_info.get('dist', {}).get('tarball')
+                    if not tarball_url:
+                        logger.error(f"Could not find tarball URL for {name}@{latest_version}")
+                        return
+
+                    # Download the package tarball
+                    logger.info(f"Downloading {name}@{latest_version}")
+                    async with session.get(tarball_url) as tarball_response:
+                        if tarball_response.status == 200:
+                            await tarball_response.read()  # Just read to warm up the mirror
+                            logger.info(f"Downloaded {name}@{latest_version}")
+                        else:
+                            logger.error(f"Failed to download {name}@{latest_version}: {tarball_response.status}")
                 else:
-                    logger.error(f"Failed to download {name}: {response.status}")
+                    logger.error(f"Failed to fetch metadata for {name}: {response.status}")
         except Exception as e:
             logger.error(f"Error downloading {name}: {e}")
 
