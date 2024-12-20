@@ -232,7 +232,7 @@ module "alb" {
         enabled             = true
         interval           = 30
         path               = "/"
-        port               = "traffic-port"
+        port               = 8081
         healthy_threshold   = 3
         unhealthy_threshold = 3
         timeout            = 6
