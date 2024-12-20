@@ -529,24 +529,11 @@ module "asg" {
   }
 }
 
-# Create Elastic IP
-resource "aws_eip" "instance_eip" {
-  domain = "vpc"
-}
-
 # Get the instance ID from the ASG
 data "aws_instances" "asg_instances" {
   instance_tags = {
     "aws:autoscaling:groupName" = module.asg.autoscaling_group_name
   }
-
-  depends_on = [module.asg]
-}
-
-# EIP Association
-resource "aws_eip_association" "eip_assoc" {
-  allocation_id = aws_eip.instance_eip.id
-  instance_id   = data.aws_instances.asg_instances.ids[0]
 
   depends_on = [module.asg]
 }
