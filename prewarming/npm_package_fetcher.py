@@ -34,7 +34,7 @@ class NpmPackageFetcher:
                     ]
 
                     # Convert to package objects
-                    packages = [{"name": name} for name in package_names][:10]
+                    packages = [{"name": name} for name in package_names]
                     logger.info(f"Retrieved {len(packages)} packages")
                     return packages
                 else:
