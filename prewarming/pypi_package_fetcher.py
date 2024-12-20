@@ -2,9 +2,11 @@ import aiohttp
 import asyncio
 import logging
 from typing import List, Dict
+from bs4 import BeautifulSoup
+import re
+from urllib.parse import urljoin
 
-PYPI_URL = "https://pypi.org/simple"
-PYPI_JSON_URL = "https://pypi.org/pypi"
+PYPI_URL = "http://<Path to ALB>/repository/python/simple"
 
 PACKAGE_LIST_URL = "https://cdn.jsdelivr.net/gh/hugovk/top-pypi-packages/top-pypi-packages-30-days.min.json"
 CONCURRENCY = 5
@@ -28,7 +30,6 @@ class PyPiPackageFetcher:
                 if response.status == 200:
                     try:
                         data = await response.json()
-                        # Take first 10 packages from the rows array
                         packages = [{"name": pkg["project"]} for pkg in data["rows"]]
                         logger.info(f"Retrieved {len(packages)} packages")
                         return packages
@@ -44,29 +45,38 @@ class PyPiPackageFetcher:
             return []
 
     async def download_package(self, session: aiohttp.ClientSession, package: Dict) -> None:
-        """Download a wheel file for a PyPI package"""
+        """Download a wheel file for a PyPI package using simple API"""
         name = package["name"]
-        json_url = f"{PYPI_JSON_URL}/{name}/json"
+        package_url = f"{PYPI_URL}/{name}/"
 
         try:
-            # First get package metadata to find wheel files
-            logger.info(f"Fetching metadata for {name}")
-            async with session.get(json_url) as response:
+            # Get package page from simple API
+            logger.info(f"Fetching package page for {name}")
+            async with session.get(package_url) as response:
                 if response.status == 200:
-                    data = await response.json()
-                    releases = data.get("releases", {})
-                    latest_version = data["info"]["version"]
+                    html_content = await response.text()
+                    soup = BeautifulSoup(html_content, 'html.parser')
 
-                    # Look for wheel files in the latest version
-                    wheel_files = [
-                        f for f in releases.get(latest_version, [])
-                        if f["filename"].endswith(".whl")
-                    ]
+                    # Find all package files
+                    files = []
+                    for anchor in soup.find_all('a'):
+                        href = anchor.get('href', '')
+                        if ".whl" in href:
+                            # Handle relative URLs and remove query parameters and hash fragments
+                            clean_url = href.split('#')[0].split('?')[0]
+                            # Resolve relative URLs against the package URL
+                            absolute_url = urljoin(package_url, clean_url)
+                            files.append({
+                                'url': absolute_url,
+                                'requires_python': anchor.get('data-requires-python'),
+                                'filename': href.split('/')[-1]
+                            })
 
-                    if wheel_files:
+                    if files:
                         # Download the first available wheel file
-                        wheel_url = wheel_files[0]["url"]
-                        logger.info(f"Downloading wheel for {name}: {wheel_url}")
+                        wheel_file = files[0]
+                        wheel_url = wheel_file['url']
+                        logger.info(f"Downloading wheel for {name}: {wheel_file['filename']}")
                         async with session.get(wheel_url) as wheel_response:
                             if wheel_response.status == 200:
                                 await wheel_response.read()  # Read to warm up the mirror
@@ -74,17 +84,11 @@ class PyPiPackageFetcher:
                             else:
                                 logger.error(f"Failed to download wheel for {name}: {wheel_response.status}")
                     else:
-                        logger.warning(f"No wheel files found for {name} {latest_version}")
-                        # Fallback to simple API
-                        package_url = f"{PYPI_URL}/{name}/"
-                        async with session.get(package_url) as simple_response:
-                            if simple_response.status == 200:
-                                await simple_response.read()
-                                logger.info(f"Downloaded simple index for {name} (no wheel available)")
-                            else:
-                                logger.error(f"Failed to download simple index for {name}: {simple_response.status}")
+                        # If no wheel files found, just warm up the package page
+                        logger.warning(f"No wheel files found for {name}")
+                        logger.info(f"Downloaded simple index for {name} (no wheel available)")
                 else:
-                    logger.error(f"Failed to fetch metadata for {name}: {response.status}")
+                    logger.error(f"Failed to fetch package page for {name}: {response.status}")
         except Exception as e:
             logger.error(f"Error processing {name}: {e}")
 
